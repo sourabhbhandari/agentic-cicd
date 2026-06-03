@@ -1,0 +1,21 @@
+# Agentic CI/CD — Python dependencies
+
+# Google ADK (agent framework)
+google-adk>=0.3.0
+
+# LLM provider routing (ADK uses LiteLLM under the hood)
+litellm>=1.40.0
+
+# Anthropic SDK (Claude)
+anthropic>=0.30.0
+
+# Async HTTP (for webhook server + API calls)
+aiohttp>=3.9.0
+httpx>=0.27.0
+
+# K8s client (optional — for direct API calls beyond kubectl)
+kubernetes>=30.1.0
+
+# Utilities
+python-dotenv>=1.0.0
+pydantic>=2.7.0

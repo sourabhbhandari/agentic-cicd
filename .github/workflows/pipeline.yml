@@ -1,0 +1,93 @@
+name: Agentic CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '*/15 * * * *'   # GitOps sync check every 15 minutes
+
+env:
+  IMAGE_NAME: ${{ github.repository_owner }}/${{ github.event.repository.name }}
+  IMAGE_TAG: ${{ github.sha }}
+
+jobs:
+  agentic-pipeline:
+    name: Run agentic pipeline
+    runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+
+    - name: Install pipeline dependencies
+      run: |
+        pip install -r requirements.txt
+        # Security tools
+        curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+        pip install semgrep
+        curl -sSfL https://raw.githubusercontent.com/gitleaks/gitleaks/main/scripts/install.sh | sh -s -- -b /usr/local/bin
+        pip install checkov
+
+    - name: Configure kubeconfig (Docker Desktop)
+      run: |
+        mkdir -p ~/.kube
+        echo "${{ secrets.KUBECONFIG_BASE64 }}" | base64 -d > ~/.kube/config
+
+    - name: Run agentic pipeline
+      env:
+        ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        ARGOCD_AUTH_TOKEN: ${{ secrets.ARGOCD_AUTH_TOKEN }}
+        ARGOCD_SERVER: ${{ secrets.ARGOCD_SERVER }}
+        REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+        BRANCH: ${{ github.ref_name }}
+        COMMIT_SHA: ${{ github.sha }}
+        IMAGE_NAME: ${{ env.IMAGE_NAME }}
+        IMAGE_TAG: ${{ env.IMAGE_TAG }}
+        ARGOCD_APP: ${{ github.event.repository.name }}
+        K8S_NAMESPACE: ${{ vars.K8S_NAMESPACE || 'default' }}
+        DRY_RUN: ${{ github.event_name == 'pull_request' && 'true' || 'false' }}
+      run: python main.py pipeline
+
+    - name: Upload pipeline report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: pipeline-report-${{ github.sha }}
+        path: pipeline-report.json
+        retention-days: 30
+
+  gitops-sync:
+    name: GitOps sync check
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule'
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+
+    - name: Install dependencies
+      run: pip install -r requirements.txt
+
+    - name: Configure kubeconfig
+      run: |
+        mkdir -p ~/.kube
+        echo "${{ secrets.KUBECONFIG_BASE64 }}" | base64 -d > ~/.kube/config
+
+    - name: Run GitOps sync check
+      env:
+        ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        ARGOCD_AUTH_TOKEN: ${{ secrets.ARGOCD_AUTH_TOKEN }}
+        ARGOCD_SERVER: ${{ secrets.ARGOCD_SERVER }}
+      run: python main.py sync
